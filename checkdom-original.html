@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CheckDom V1 (Auto Timezone)</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --tg-bg: var(--tg-theme-bg-color, #17212b);
+            --tg-secondary-bg: var(--tg-theme-secondary-bg-color, #232e3c);
+            --tg-text: var(--tg-theme-text-color, #ffffff);
+            --tg-hint: var(--tg-theme-hint-color, #708499);
+            --tg-blue: var(--tg-theme-button-color, #5288c1);
+            --tg-button-text: var(--tg-theme-button-text-color, #ffffff);
+            --tg-red: #ff5b5b;
+            --tg-green: #4caf50;
+            --tg-yellow: #f5c046;
+            --radius: 12px;
+        }
+
+        body {
+            background-color: var(--tg-bg); color: var(--tg-text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0; padding: 0; 
+            /* 🚀 核心修复：增加底部留白到 260px，确保向下弹出的语言菜单不被遮挡 */
+            padding-bottom: 260px; 
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        .header {
+            background-color: var(--tg-secondary-bg); padding: 12px 16px;
+            position: sticky; top: 0; z-index: 100;
+            display: flex; justify-content: center; align-items: center;
+            font-weight: bold; font-size: 17px;
+            box-shadow: 0 1px 0 rgba(0,0,0,0.1);
+        }
+
+        .page { display: none; padding: 16px; animation: fadeIn 0.2s; }
+        .page.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: var(--tg-bg); z-index: 5000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid var(--tg-secondary-bg);
+            border-top: 4px solid var(--tg-blue); border-radius: 50%;
+            animation: spin 1s linear infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .card {
+            background-color: var(--tg-secondary-bg); border-radius: var(--radius);
+            padding: 12px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;
+            transition: opacity 0.2s;
+        }
+        .card:active { opacity: 0.7; }
+        .card-left { display: flex; flex-direction: column; gap: 4px; }
+        .card-title { font-size: 16px; font-weight: 500; }
+        .card-date { font-size: 13px; color: var(--tg-hint); }
+
+        .member-card {
+            background-color: var(--tg-secondary-bg); border-radius: var(--radius);
+            padding: 12px 16px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px;
+        }
+        .avatar {
+            width: 40px; height: 40px; border-radius: 50%; background: var(--tg-blue);
+            color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px;
+        }
+        .member-info { flex: 1; }
+        .member-name { font-size: 16px; font-weight: 500; }
+        .member-role { font-size: 12px; color: var(--tg-hint); display: flex; align-items: center; gap: 4px; }
+        .role-badge { 
+            background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-size: 10px; color: var(--tg-blue);
+        }
+
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; text-align: center; margin-top: 10px; }
+        .weekday { color: var(--tg-hint); font-size: 12px; margin-bottom: 5px; }
+        .day { height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; font-size: 14px; position: relative; }
+        .day.selected { background-color: var(--tg-blue); color: var(--tg-button-text); }
+        
+        .day.today {
+            border: 2px solid var(--tg-blue);
+            color: var(--tg-blue);
+            font-weight: bold;
+            box-sizing: border-box;
+        }
+
+        .dot { width: 7px; height: 7px; border-radius: 50%; position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); }
+        .dot.red { background-color: var(--tg-red); }
+        .dot.yellow { background-color: var(--tg-yellow); }
+        .dot.green { background-color: var(--tg-green); }
+        .dot.predicted { background-color: var(--tg-yellow); opacity: 0.6; border: 1px solid var(--tg-bg); }
+
+        .tab-bar {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background-color: var(--tg-secondary-bg);
+            display: flex; justify-content: space-around; padding: 10px 0;
+            border-top: 1px solid rgba(0,0,0,0.1); z-index: 1000;
+            padding-bottom: max(20px, env(safe-area-inset-bottom));
+            height: 60px;
+        }
+        .tab-item { display: flex; flex-direction: column; align-items: center; font-size: 10px; color: var(--tg-hint); }
+        .tab-item.active { color: var(--tg-blue); }
+
+        .form-group { margin-bottom: 16px; }
+        .form-label { color: var(--tg-hint); font-size: 13px; margin-bottom: 6px; display: block; }
+        .form-input {
+            width: 100%; background-color: var(--tg-secondary-bg); color: var(--tg-text);
+            border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: var(--radius);
+            box-sizing: border-box; font-size: 16px;
+        }
+        .main-button {
+            background-color: var(--tg-blue); color: var(--tg-button-text); width: 100%;
+            padding: 14px; border-radius: var(--radius); border: none;
+            font-size: 16px; font-weight: bold; margin-top: 20px; cursor: pointer;
+        }
+        .hidden { display: none !important; }
+        .section-header { font-size: 13px; color: var(--tg-hint); margin: 20px 0 8px 0; display: flex; align-items: center; text-transform: uppercase; font-weight: bold; }
+
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7); z-index: 3000;
+            display: none; align-items: center; justify-content: center;
+        }
+        .modal-overlay.show { display: flex; animation: fadeIn 0.2s; }
+
+        #action-sheet-overlay { z-index: 2000; }
+        .bottom-sheet {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background-color: var(--tg-secondary-bg);
+            border-radius: 16px 16px 0 0; padding: 20px; z-index: 2001;
+            transform: translateY(100%); transition: transform 0.3s ease;
+            padding-bottom: calc(30px + env(safe-area-inset-bottom));
+        }
+        .bottom-sheet.show { transform: translateY(0); }
+
+        .picker-container {
+            background-color: var(--tg-secondary-bg); width: 85%; max-width: 320px;
+            border-radius: 16px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .close-bar { width: 40px; height: 4px; background-color: var(--tg-hint); border-radius: 2px; margin: 0 auto 20px auto; opacity: 0.3; }
+        
+        /* --- 统一方框项样式 --- */
+        .clickable-item-box {
+            background-color: var(--tg-secondary-bg); border-radius: var(--radius);
+            padding: 16px; display: flex; justify-content: space-between; align-items: center;
+            cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            margin-top: 10px; transition: opacity 0.2s; border: 1px solid rgba(255,255,255,0.03);
+        }
+        .clickable-item-box:active { opacity: 0.7; }
+        .item-label { font-weight: 500; font-size: 16px; }
+        .item-value { color: var(--tg-blue); display: flex; align-items: center; gap: 8px; font-size: 15px; }
+
+        .input-box-field {
+            background: transparent; border: none; color: var(--tg-blue);
+            text-align: right; font-size: 15px; outline: none; font-family: inherit;
+        }
+
+        .custom-select-container { position: relative; margin-top: 20px; }
+        .select-trigger {
+            background-color: var(--tg-secondary-bg); border-radius: var(--radius);
+            padding: 16px; display: flex; justify-content: space-between; align-items: center;
+            cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .select-trigger:active { opacity: 0.7; }
+        .select-label { font-weight: 500; font-size: 16px; }
+        .select-value { color: var(--tg-blue); display: flex; align-items: center; gap: 8px; font-size: 15px; }
+        
+        /* 🚀 保持向下的弹出方向 */
+        .select-options {
+            position: absolute; top: calc(100% + 8px); left: 0; right: 0;
+            background-color: var(--tg-secondary-bg);
+            border-radius: var(--radius);
+            padding: 8px;
+            z-index: 1100;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: none; border: 1px solid rgba(255,255,255,0.05);
+            animation: fadeIn 0.1s ease-out;
+        }
+        .select-options.open { display: block; }
+        .select-option {
+            padding: 14px; border-radius: 8px;
+            display: flex; justify-content: space-between; align-items: center;
+            cursor: pointer; font-size: 16px;
+        }
+        .select-option:active { background-color: rgba(255,255,255,0.05); }
+        .select-option.selected { color: var(--tg-blue); font-weight: bold; }
+
+        .sys-info { font-size: 10px; color: var(--tg-hint); text-align: center; margin-top: 30px; opacity: 0.5;}
+    </style>
+</head>
+<body onclick="closeLanguageMenuOutside(event)">
+
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loading-text" style="color: var(--tg-hint);">Подключение...</div>
+    </div>
+
+    <div class="header">
+        <span id="header-title" data-i18n="app_title">Мой Дом</span>
+    </div>
+
+    <div id="page-home" class="page active">
+        <div style="background-color: var(--tg-secondary-bg); padding: 16px; border-radius: var(--radius); margin-bottom: 20px;">
+            <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:10px;">
+                <span onclick="changeHomeMonth(-1)" style="cursor:pointer; padding:5px;">&lt;</span> 
+                <span id="home-month-display" onclick="openYearMonthPicker('home')" style="cursor: pointer; border-bottom: 1px dashed var(--tg-hint);"></span> 
+                <span onclick="changeHomeMonth(1)" style="cursor:pointer; padding:5px;">&gt;</span>
+            </div>
+            <div class="calendar-grid" id="calendar-weekdays"></div>
+            <div class="calendar-grid" id="home-calendar-days"></div>
+        </div>
+        <div id="home-list-view"></div>
+        <div id="home-daily-view" class="hidden">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; padding:0 5px;">
+                <div id="daily-date-title" style="font-size:16px; font-weight:bold;"></div>
+                <div style="color:var(--tg-blue); font-size:14px; cursor:pointer;" onclick="resetHomeCalendar()" data-i18n="back_overview">Назад</div>
+            </div>
+            <div id="daily-task-container"></div>
+        </div>
+    </div>
+
+    <div id="page-tasks" class="page">
+        <div id="task-list-mode">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <span style="color:var(--tg-hint)" data-i18n="task_list_hint">Нажмите для ред.</span>
+                <span style="color:var(--tg-blue); font-weight:bold; padding: 8px; cursor:pointer;" onclick="startCreateNew()" data-i18n="btn_create">+ Новая</span>
+            </div>
+            <div id="task-list-container"></div>
+        </div>
+
+        <div id="task-edit-mode" class="hidden">
+            <div style="margin-bottom:20px; color:var(--tg-blue); cursor:pointer;" onclick="cancelEdit()" data-i18n="back_list">&lt; Назад</div>
+            <h2 id="form-title" style="margin-top:0; font-size:20px;" data-i18n="title_new_task">Новая задача</h2>
+            <div class="form-group">
+                <label class="form-label" data-i18n="label_task_name">Название</label>
+                <input type="text" class="form-input" id="input-name" placeholder="Напр. Фильтр">
+            </div>
+            <div class="form-group">
+                <label class="form-label" data-i18n="label_next_date">Дата</label>
+                <div class="form-input" onclick="openDatePicker('edit')" style="cursor:pointer; display:flex; justify-content:space-between;">
+                    <span id="input-date-display" style="color: var(--tg-hint);" data-i18n="placeholder_select_date">Выбрать</span><span>📅</span>
+                </div>
+                <input type="hidden" id="input-date-value">
+            </div>
+            <div class="form-group">
+                <label class="form-label" data-i18n="label_repeat">Повтор</label>
+                <div style="display:flex; gap:10px;">
+                    <span style="padding:12px 0;" data-i18n="every">Каждые</span>
+                    <input type="number" class="form-input" id="input-freq" value="1" min="1" style="width:60px; text-align:center;" oninput="if(this.value < 1) this.value = 1;">
+                    <select class="form-input" id="input-unit">
+                        <option value="月" data-i18n="unit_month">мес</option>
+                        <option value="周" data-i18n="unit_week">нед</option>
+                        <option value="年" data-i18n="unit_year">год</option>
+                        <option value="天" data-i18n="unit_day">дн</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="section-header" data-i18n="label_notify_config">Уведомления</div>
+            <div class="clickable-item-box">
+                <div class="item-label" data-i18n="label_notify_enable">Telegram уведомления</div>
+                <input type="checkbox" id="input-notify-enable" checked style="width:20px; height:20px; cursor:pointer;">
+            </div>
+            <div class="clickable-item-box">
+                <div class="item-label" data-i18n="label_notify_days">За сколько дней</div>
+                <select id="input-notify-days" class="input-box-field">
+                    <option value="0" data-i18n="notify_0">В тот же день</option>
+                    <option value="1" data-i18n="notify_1">За 1 день</option>
+                    <option value="2" data-i18n="notify_2">За 2 дня</option>
+                    <option value="3" data-i18n="notify_3">За 3 дня</option>
+                    <option value="5" data-i18n="notify_5">За 5 дней</option>
+                    <option value="7" data-i18n="notify_7">За 7 дней</option>
+                </select>
+            </div>
+            <div class="clickable-item-box">
+                <div class="item-label" data-i18n="label_notify_time">Время</div>
+                <input type="time" id="input-notify-time" class="input-box-field" value="09:00">
+            </div>
+
+            <button class="main-button" onclick="saveTask()" data-i18n="btn_save">Сохранить</button>
+            <button type="button" id="btn-delete-task" class="main-button" style="background:transparent; color:var(--tg-red); margin-top:0;" onclick="askDeleteTask()" data-i18n="btn_delete">🗑 Удалить</button>
+        </div>
+    </div>
+
+    <div id="page-settings" class="page">
+        <div class="section-header" style="margin-top:0;" data-i18n="settings_family">Семья</div>
+        <div style="background-color: var(--tg-secondary-bg); border-radius: var(--radius); padding: 16px; margin-bottom: 15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
+                <div style="font-weight:bold; font-size:18px;">🏡 <span id="house-name">Мой Дом</span></div>
+                <div style="font-size:12px; color:var(--tg-hint); background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:4px;">Участников: <span id="member-count">1</span></div>
+            </div>
+            
+            <div id="member-list"></div>
+
+            <button class="main-button" style="margin-top:15px; background: rgba(82, 136, 193, 0.15); color: var(--tg-blue);" onclick="inviteFamily()">
+                <span data-i18n="btn_invite">📤 Пригласить семью</span>
+            </button>
+        </div>
+
+        <div class="clickable-item-box" onclick="contactDev()">
+            <div class="item-label" data-i18n="btn_contact_dev">👨‍💻 Связаться</div>
+            <div class="item-value">@GGstarlord</div>
+        </div>
+
+        <div class="clickable-item-box" onclick="deleteAccount()">
+            <div class="item-label" style="color: var(--tg-red);" data-i18n="btn_delete_account">⚠️ Удалить аккаунт</div>
+            <div class="item-value" style="color: var(--tg-red); opacity: 0.5;">&gt;</div>
+        </div>
+        
+        <div class="custom-select-container" onclick="event.stopPropagation()">
+            <div class="select-trigger" onclick="toggleLanguageMenu()">
+                <div class="select-label" data-i18n="settings_language">Язык</div>
+                <div class="select-value">
+                    <span id="current-lang-display">🇷🇺 Русский</span>
+                    <span style="font-size:12px; opacity:0.7">▼</span>
+                </div>
+            </div>
+            <div id="language-options" class="select-options">
+                <div class="select-option" onclick="selectLanguage('ru')">
+                    <span>🇷🇺 Русский</span>
+                    <span class="check-mark" id="opt-check-ru"></span>
+                </div>
+                <div class="select-option" onclick="selectLanguage('en')">
+                    <span>🇺🇸 English</span>
+                    <span class="check-mark" id="opt-check-en"></span>
+                </div>
+                <div class="select-option" onclick="selectLanguage('zh')">
+                    <span>🇨🇳 简体中文</span>
+                    <span class="check-mark" id="opt-check-zh"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="sys-info">CheckDom V1 | User: <span id="debug-uid"></span></div>
+    </div>
+
+    <div class="modal-overlay" id="date-picker-modal" onclick="closeDatePicker(event)">
+        <div class="picker-container" onclick="event.stopPropagation()">
+            <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:15px;">
+                <span onclick="changePickerMonth(-1)" style="cursor:pointer; padding:5px;">&lt;</span>
+                <span id="picker-title" onclick="openYearMonthPicker('picker')" style="cursor: pointer; border-bottom: 1px dashed var(--tg-hint); min-width: 100px; text-align: center;"></span>
+                <span onclick="changePickerMonth(1)" style="cursor:pointer; padding:5px;">&gt;</span>
+            </div>
+            <div class="calendar-grid" id="picker-weekdays"></div>
+            <div class="calendar-grid" id="picker-days"></div>
+            <div style="margin-top:15px; text-align:right;">
+                <span style="color:var(--tg-blue); font-size:14px; padding:10px; cursor:pointer;" onclick="closeDatePickerDirect()" data-i18n="btn_cancel">Отмена</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="ym-picker-modal" onclick="closeYMPicker(event)">
+        <div class="picker-container" onclick="event.stopPropagation()">
+            <h3 style="margin-top:0; text-align:center;" data-i18n="title_jump_to">Перейти...</h3>
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <select id="ym-year-select" class="form-input" style="text-align:center;"></select>
+                <select id="ym-month-select" class="form-input" style="text-align:center;"></select>
+            </div>
+            <button class="main-button" style="margin-top:0;" onclick="confirmYMPicker()" data-i18n="btn_confirm">ОК</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="delete-confirm-modal" onclick="closeDeleteModal()">
+        <div class="picker-container" onclick="event.stopPropagation()" style="text-align: center;">
+            <h3 style="margin-top:0; color:var(--tg-red);" data-i18n="title_delete">Удалить?</h3>
+            <div style="margin-bottom:20px; color:var(--tg-hint);" data-i18n="msg_delete_confirm">Вы уверены?</div>
+            <div style="display:flex; gap:10px;">
+                <button class="main-button" style="margin-top:0; background-color:var(--tg-secondary-bg); color:var(--tg-text);" onclick="closeDeleteModal()" data-i18n="btn_cancel">Нет</button>
+                <button class="main-button" style="margin-top:0; background-color:var(--tg-red);" onclick="executeDelete()" data-i18n="btn_confirm_delete">Да</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="action-sheet-overlay" onclick="closeActionSheet()"></div>
+    <div class="bottom-sheet" id="action-sheet">
+        <div class="close-bar" onclick="closeActionSheet()"></div>
+        <div style="margin-bottom:20px;">
+            <div id="action-title" style="font-size:20px; font-weight:bold; margin-bottom:5px;">Title</div>
+            <div id="action-date" style="color:var(--tg-hint);">Date</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:12px; margin-bottom:20px;" onclick="openDatePicker('action')">
+            <div style="font-size:13px; color:var(--tg-hint); margin-bottom:5px;" data-i18n="label_actual_date">Дата выполнения</div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span id="action-complete-date-display" style="font-size:16px; font-weight:bold;"></span><span>📅</span>
+            </div>
+            <input type="hidden" id="action-complete-date-value">
+        </div>
+        <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:12px; margin-bottom:20px;">
+            <div style="font-size:13px; color:var(--tg-hint); margin-bottom:5px;" data-i18n="label_next_plan">Далее</div>
+            <div id="action-next-rule" style="font-size:15px;"></div>
+        </div>
+        <button class="main-button" onclick="completeTask()" data-i18n="btn_complete">✅ Выполнить</button>
+    </div>
+
+    <div class="tab-bar">
+        <div class="tab-item active" onclick="switchTab('home', this)"><div style="font-size:20px">🏠</div><div data-i18n="tab_home">Главная</div></div>
+        <div class="tab-item" onclick="switchTab('tasks', this)"><div style="font-size:20px">📝</div><div data-i18n="tab_tasks">Задачи</div></div>
+        <div class="tab-item" onclick="switchTab('settings', this)"><div style="font-size:20px">⚙️</div><div data-i18n="tab_settings">Настройки</div></div>
+    </div>
+
+    <script>
+        // ======= Configuration =======
+        const SUPABASE_URL = 'https://sytlwramamwttvrcxxtt.supabase.co'; 
+        const SUPABASE_KEY = 'sb_publishable_61g187_K9N5GIRxH8OCNCg_FuvuiqTz'; 
+        const BOT_USERNAME = 'CheckDomAppBot';  
+        const APP_SLUG = 'checkdom';              
+
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // ======= Telegram & Globals =======
+        const tg = window.Telegram ? window.Telegram.WebApp : null;
+        let currentUser = null; 
+        let currentHouseholdId = null;
+        let currentHouseholdName = "Мой Дом"; 
+        let tasks = [];
+        let familyMembers = [];
+
+        let currentEditingId = null;
+        let currentActionTaskId = null;
+        let datePickerTarget = 'edit';
+        
+        // 🚀 修改：默认语言设为俄语
+        let currentLang = localStorage.getItem('checkdom_lang') || 'ru';
+        
+        let ymPickerTarget = 'home'; 
+
+        // ======= Date Logic =======
+        const dateObj = new Date();
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        const SIMULATED_TODAY = `${year}-${month}-${day}`;
+
+        // ======= Safe Popup Helpers =======
+        function safeConfirm(text, callback) {
+            if (tg && tg.showConfirm && tg.isVersionAtLeast && tg.isVersionAtLeast('6.2')) {
+                tg.showConfirm(text, callback);
+            } else {
+                callback(confirm(text));
+            }
+        }
+
+        function safeAlert(text) {
+            if (tg && tg.showAlert && tg.isVersionAtLeast && tg.isVersionAtLeast('6.2')) {
+                tg.showAlert(text);
+            } else {
+                alert(text);
+            }
+        }
+
+        // ======= Initialization =======
+        async function init() {
+            if (tg) { 
+                tg.ready(); 
+                tg.expand(); 
+                try { tg.enableClosingConfirmation(); } catch(e){}
+            }
+
+            try {
+                if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                    currentUser = tg.initDataUnsafe.user;
+                }
+            } catch (e) { console.warn("TG Init failed:", e); }
+
+            if (!currentUser) {
+                let mockId;
+                try { mockId = localStorage.getItem('mock_tg_id'); } catch(e) {}
+                if (!mockId) {
+                    mockId = Math.floor(Math.random() * 10000000);
+                    try { localStorage.setItem('mock_tg_id', mockId); } catch(e) {}
+                }
+                currentUser = { id: mockId, first_name: "Test", last_name: "User", username: "tester" };
+            }
+            
+            const debugEl = document.getElementById('debug-uid');
+            if(debugEl) debugEl.innerText = "User: " + (currentUser ? currentUser.id : 'ERR');
+
+            try {
+                await loginOrRegister();
+                await loadData();
+                updateLanguageUI();
+                renderHomeCalendar();
+                renderYearMonthOptions();
+                
+                const loadOverlay = document.getElementById('loading-overlay');
+                if(loadOverlay) loadOverlay.style.display = 'none';
+            } catch (error) {
+                console.error("Init Error:", error);
+                const loadingText = document.getElementById('loading-text');
+                if(loadingText) loadingText.innerText = "Error: " + error.message;
+            }
+        }
+
+        // ======= Auth & Invite Logic =======
+        async function loginOrRegister() {
+            let user = currentUser;
+            if (!user || !user.id) {
+                user = { id: 999999, first_name: 'Guest' };
+                currentUser = user; 
+            }
+
+            const { data: profile, error } = await supabaseClient
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id) 
+                .single();
+
+            let inviteHouseholdId = null;
+            let startParam = null;
+
+            if (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) {
+                startParam = tg.initDataUnsafe.start_param;
+            }
+            if (!startParam) {
+                try {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    startParam = urlParams.get('tgWebAppStartParam');
+                } catch(e) {}
+            }
+            
+            if (startParam && startParam.startsWith('invite_')) {
+                inviteHouseholdId = startParam.replace('invite_', '');
+            }
+
+            if (profile) {
+                currentHouseholdId = profile.household_id;
+                
+                const myTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                if (profile.timezone !== myTimeZone) {
+                    await supabaseClient.from('profiles').update({ timezone: myTimeZone }).eq('id', user.id);
+                }
+
+                if (inviteHouseholdId && inviteHouseholdId !== currentHouseholdId) {
+                    const confirmText = getText('msg_switch_house_confirm') + "\n(Switch to ID: " + inviteHouseholdId.substring(0,4) + ")";
+                    safeConfirm(confirmText, async (ok) => {
+                        if (ok) {
+                            const { error } = await supabaseClient.from('profiles').update({ household_id: inviteHouseholdId }).eq('id', user.id);
+                            if (!error) {
+                                safeAlert("✅ Success! Joined new house.");
+                                currentHouseholdId = inviteHouseholdId;
+                                await loadData();
+                            } else {
+                                safeAlert("❌ Error joining: " + error.message);
+                            }
+                        }
+                    });
+                }
+            } else {
+                if (inviteHouseholdId) {
+                    currentHouseholdId = inviteHouseholdId;
+                } else {
+                    // 🚀 修改：新家庭默认名改为俄语
+                    const houseName = (user.first_name || 'Мой') + " ДОМ";
+                    const { data: house } = await supabaseClient.from('households').insert({ name: houseName }).select().single();
+                    if(house) currentHouseholdId = house.id;
+                }
+
+                if (currentHouseholdId) {
+                    const myTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                    const { error } = await supabaseClient.from('profiles').insert({
+                        id: user.id,
+                        first_name: user.first_name,
+                        username: user.username,
+                        household_id: currentHouseholdId,
+                        role: inviteHouseholdId ? 'member' : 'owner',
+                        language: currentLang,
+                        timezone: myTimeZone
+                    });
+                    
+                    if (error) {
+                        console.error("Profile creation failed", error);
+                        safeAlert("❌ Create Profile Failed: " + error.message);
+                    } else if (inviteHouseholdId) {
+                        safeAlert(`🎉 Добро пожаловать! Вы присоединились к семье.`);
+                    }
+                }
+            }
+        }
+
+        function inviteFamily() {
+            if (!currentHouseholdId) return;
+            const directLink = `https://t.me/${BOT_USERNAME}/${APP_SLUG}?startapp=invite_${currentHouseholdId}`;
+            // 🚀 修改：转发邀请消息改为俄语
+            const message = `🏠 Приглашаю тебя в группу управления домом 【${currentHouseholdName}】.\n\n👇 Нажми на кнопку ниже, чтобы присоединиться:`;
+            const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(directLink)}&text=${encodeURIComponent(message)}`;
+            if (tg && tg.openTelegramLink) tg.openTelegramLink(shareUrl);
+            else prompt("Copy this link to test:", directLink);
+        }
+
+        // ======= Data Loading =======
+        async function loadData() {
+            if(!currentHouseholdId) return;
+            const { data: house } = await supabaseClient.from('households').select('name').eq('id', currentHouseholdId).single();
+            if(house) currentHouseholdName = house.name;
+            const { data: members = [] } = await supabaseClient.from('profiles').select('*').eq('household_id', currentHouseholdId);
+            familyMembers = members || [];
+            const { data: remoteTasks = [] } = await supabaseClient.from('tasks').select('*').eq('household_id', currentHouseholdId);
+            tasks = remoteTasks || [];
+            renderTaskList();
+            renderSettings();
+        }
+
+        async function saveTask() {
+            const name = document.getElementById('input-name').value;
+            const date = document.getElementById('input-date-value').value;
+            if(!name || !date) return;
+
+            const payload = {
+                name, date,
+                freq: document.getElementById('input-freq').value,
+                unit: document.getElementById('input-unit').value,
+                household_id: currentHouseholdId,
+                notifications_enabled: document.getElementById('input-notify-enable').checked,
+                notify_days_before: parseInt(document.getElementById('input-notify-days').value),
+                notify_time: document.getElementById('input-notify-time').value
+            };
+
+            const btn = document.querySelector('#task-edit-mode .main-button');
+            const originalText = btn.innerText;
+            btn.innerText = 'Saving...';
+            
+            if(currentEditingId) await supabaseClient.from('tasks').update(payload).eq('id', currentEditingId);
+            else await supabaseClient.from('tasks').insert(payload);
+            
+            await loadData();
+            btn.innerText = originalText;
+            toggleEditView(false);
+            renderHomeCalendar();
+        }
+
+        async function executeDelete() {
+            if(!currentEditingId) return;
+            await supabaseClient.from('tasks').delete().eq('id', currentEditingId);
+            await loadData();
+            toggleEditView(false);
+            closeDeleteModal();
+            renderHomeCalendar();
+        }
+
+        async function completeTask() {
+            if (!currentActionTaskId) return;
+            const task = tasks.find(t => t.id === currentActionTaskId);
+            if (task) {
+                const completionDateStr = document.getElementById('action-complete-date-value').value;
+                let history = task.history || [];
+                if(!Array.isArray(history)) history = [];
+                history.push(completionDateStr);
+
+                let nextRun = new Date(completionDateStr);
+                if (task.unit === '月') nextRun.setMonth(nextRun.getMonth() + parseInt(task.freq));
+                else if (task.unit === '周') nextRun.setDate(nextRun.getDate() + (7 * parseInt(task.freq)));
+                else if (task.unit === '年') nextRun.setFullYear(nextRun.getFullYear() + parseInt(task.freq));
+                else if (task.unit === '天') nextRun.setDate(nextRun.getDate() + parseInt(task.freq));
+                const nextDateStr = `${nextRun.getFullYear()}-${String(nextRun.getMonth()+1).padStart(2,'0')}-${String(nextRun.getDate()).padStart(2,'0')}`;
+
+                await supabaseClient.from('tasks').update({ date: nextDateStr, history: history }).eq('id', task.id);
+                await loadData();
+                renderHomeCalendar();
+                closeActionSheet();
+                
+                if (!document.getElementById('home-daily-view').classList.contains('hidden')) resetHomeCalendar();
+                safeAlert(getText('alert_complete'));
+            }
+        }
+
+        // ======= i18n & UI Helpers =======
+        const translations = {
+            'zh': {
+                'app_title': '我的家', 'house_suffix': ' 家', 
+                'tab_home': '首页', 'tab_tasks': '事项', 'tab_settings': '设置',
+                'back_overview': '返回总览', 'back_list': '返回列表', 'title_new_task': '新建事项', 'title_edit_task': '编辑事项',
+                'label_task_name': '任务名称', 'placeholder_task_name': '例如：更换滤芯', 'label_next_date': '下次执行日', 'placeholder_select_date': '请选择日期',
+                'label_repeat': '重复规则', 'every': '每', 'unit_month': '月', 'unit_week': '周', 'unit_year': '年', 'unit_day': '天',
+                'btn_save': '保存事项', 'btn_delete': '🗑 删除此事项', 'btn_create': '+ 新建', 'task_list_hint': '点击卡片编辑，或新建',
+                'header_overdue': '⚠️ 逾期未办 (历史遗留)', 'header_todo': '📅 本月计划', 'header_completed': '已完成',
+                'empty_todo': '本月暂无待办，去喝杯茶吧 🍵', 'empty_day_todo': '今日无待办', 'label_auto': '(自动推算)', 'msg_completed_archive': '已归档',
+                'label_actual_date': '实际完成日期', 'label_next_plan': '下次计划',
+                'msg_next_rule': '完成本次后，下次计划自动顺延',
+                'btn_complete': '✅ 确认完成', 'title_delete': '⚠️ 确认删除', 'msg_delete_confirm': '确定要删除这个事项吗？<br>此操作无法撤销。',
+                'btn_cancel': '取消', 'btn_confirm_delete': '确认删除', 'btn_confirm': '确认', 'settings_family': '家庭成员', 'btn_invite': '📤 转发邀请给家人',
+                'settings_language': '语言 / Language', 'btn_test_msg': '🔔 发送测试消息', 'title_jump_to': '跳转到...',
+                'btn_contact_dev': '👨‍💻 联系开发者', 'btn_delete_account': '⚠️ 删除账户并重新注册',
+                'label_notify_config': '提醒设置', 'label_notify_enable': '开启电报提醒', 'label_notify_days': '提前提醒天数', 'label_notify_time': '具体提醒时间',
+                'notify_0': '当天提醒', 'notify_1': '提前1天', 'notify_2': '提前2天', 'notify_3': '提前3天', 'notify_5': '提前5天', 'notify_7': '提前7天',
+                'msg_delete_account_confirm': '确定要删除账户吗？\n你的所有数据将被清空，随后需要重新注册。',
+                'msg_test_sent': '测试消息已发送 (模拟)', 'msg_invite_copied': '邀请链接已复制到剪贴板！', 'alert_complete': '✅ 已完成！',
+                'role_owner': '房主', 'role_member': '成员', 'msg_switch_house_confirm': '检测到新的家庭邀请，是否切换到新家庭？',
+                'weekdays': ['日', '一', '二', '三', '四', '五', '六'], 'months': ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月']
+            },
+            'en': {
+                'app_title': 'My Home', 'house_suffix': ' HOME',
+                'tab_home': 'Home', 'tab_tasks': 'Tasks', 'tab_settings': 'Settings',
+                'back_overview': 'Back', 'back_list': 'Back', 'title_new_task': 'New Task', 'title_edit_task': 'Edit Task',
+                'label_task_name': 'Task Name', 'placeholder_task_name': 'e.g. Change Filter', 'label_next_date': 'Next Due Date', 'placeholder_select_date': 'Select Date',
+                'label_repeat': 'Repeat', 'every': 'Every', 'unit_month': 'Mo', 'unit_week': 'Wk', 'unit_year': 'Yr', 'unit_day': 'Day',
+                'btn_save': 'Save', 'btn_delete': '🗑 Delete', 'btn_create': '+ New', 'task_list_hint': 'Tap to edit or create',
+                'header_overdue': '⚠️ Overdue', 'header_todo': '📅 Upcoming', 'header_completed': 'Completed',
+                'empty_todo': 'No tasks, enjoy your tea 🍵', 'empty_day_todo': 'No tasks', 'label_auto': '(Auto)', 'msg_completed_archive': 'Archived',
+                'label_actual_date': 'Done Date', 'label_next_plan': 'Next',
+                'btn_contact_dev': '👨‍💻 Contact Developer', 'btn_delete_account': '⚠️ Delete Account',
+                'label_notify_config': 'Reminders', 'label_notify_enable': 'Telegram Alert', 'label_notify_days': 'Days Before', 'label_notify_time': 'Alert Time',
+                'notify_0': 'Same day', 'notify_1': '1 day before', 'notify_2': '2 days before', 'notify_3': '3 days before', 'notify_5': '5 days before', 'notify_7': '7 days before',
+                'msg_delete_account_confirm': 'Are you sure?',
+                'msg_next_rule': 'Next run auto-scheduled after',
+                'btn_complete': '✅ Complete', 'title_delete': 'Delete?', 'msg_delete_confirm': 'Are you sure?',
+                'btn_cancel': 'Cancel', 'btn_confirm_delete': 'Delete', 'btn_confirm': 'OK', 'settings_family': 'Family', 'btn_invite': 'Share Invite',
+                'settings_language': 'Language', 'btn_test_msg': '🔔 Test Msg', 'title_jump_to': 'Jump to...',
+                'msg_test_sent': 'Sent', 'msg_invite_copied': 'Link Copied!', 'alert_complete': '✅ Done!',
+                'role_owner': 'Owner', 'role_member': 'Member', 'msg_switch_house_confirm': 'New home invite detected.',
+                'weekdays': ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'], 'months': ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+            },
+            'ru': {
+                'app_title': 'Мой Дом', 'house_suffix': ' ДОМ',
+                'tab_home': 'Главная', 'tab_tasks': 'Задачи', 'tab_settings': 'Настройки',
+                'back_overview': 'Назад', 'back_list': 'Назад', 'title_new_task': 'Новая задача', 'title_edit_task': 'Ред. задачи',
+                'label_task_name': 'Название', 'placeholder_task_name': 'Напр. Фильтр', 'label_next_date': 'Дата выполнения', 'placeholder_select_date': 'Выбрать дату',
+                'label_repeat': 'Повтор', 'every': 'Каждые', 'unit_month': 'мес', 'unit_week': 'нед', 'unit_year': 'год', 'unit_day': 'дн',
+                'btn_save': 'Сохранить', 'btn_delete': '🗑 Удалить', 'btn_create': '+ Новая', 'task_list_hint': 'Нажмите для ред.',
+                'header_overdue': 'Просрочено', 'header_todo': '📅 План', 'header_completed': 'Готово',
+                'empty_todo': 'Нет задач 🍵', 'empty_day_todo': 'Нет задач', 'label_auto': '(Авто)', 'msg_completed_archive': 'Архив',
+                'label_actual_date': 'Дата выполнения', 'label_next_plan': 'Далее', 'msg_next_rule': 'Следующая дата будет автоматически перенесена после выполнения',
+                'btn_contact_dev': '👨‍💻 Связаться', 'btn_delete_account': '⚠️ Удалить аккаунт',
+                'label_notify_config': 'Уведомления', 'label_notify_enable': 'Telegram уведомления', 'label_notify_days': 'За сколько дней', 'label_notify_time': 'Время',
+                'notify_0': 'В тот же день', 'notify_1': 'За 1 день', 'notify_2': 'За 2 дня', 'notify_3': 'За 3 дня', 'notify_5': 'За 5 дней', 'notify_7': 'За 7 дней',
+                'msg_delete_account_confirm': 'Вы уверены?',
+                'btn_complete': '✅ Выполнить', 'title_delete': 'Удалить?', 'msg_delete_confirm': 'Вы уверены?',
+                'btn_cancel': 'Отмена', 'btn_confirm_delete': 'Удалить', 'btn_confirm': 'ОК', 'settings_family': 'Семья', 'btn_invite': 'Пригласить',
+                'settings_language': 'Язык', 'btn_test_msg': '🔔 Тест', 'title_jump_to': 'Перейти...',
+                'msg_test_sent': 'Отправлено', 'msg_invite_copied': 'Ссылка скопирована!', 'alert_complete': '✅ Готово!',
+                'role_owner': 'Владелец', 'role_member': 'Участник', 'msg_switch_house_confirm': 'Обнаружено приглашение.',
+                'weekdays': ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'], 
+                'months': ['Янв.', 'Февр.', 'Март', 'Апр.', 'Май', 'Июнь', 'Июль', 'Авг.', 'Сент.', 'Окт.', 'Нояб.', 'Дек.']
+            }
+        };
+
+        const langMap = { 'ru': '🇷🇺 Русский', 'en': '🇺🇸 English', 'zh': '🇨🇳 简体中文' };
+
+        function contactDev() { const url = 'https://t.me/GGstarlord'; if (tg && tg.openTelegramLink) tg.openTelegramLink(url); else window.open(url, '_blank'); }
+
+        async function deleteAccount() {
+            safeConfirm(getText('msg_delete_account_confirm'), async (ok) => {
+                if (!ok) return;
+                await supabaseClient.from('profiles').delete().eq('id', currentUser.id);
+                localStorage.removeItem('mock_tg_id');
+                location.reload(); 
+            });
+        }
+
+        // ======= Date & Calendar Logic =======
+        let homeYear = new Date().getFullYear();
+        let homeMonth = new Date().getMonth() + 1;
+        let pickerYear = homeYear, pickerMonth = homeMonth;
+        
+        function getDaysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+        function getFirstDayOfMonth(y, m) { return new Date(y, m - 1, 1).getDay(); }
+        function calculateNewMonth(y, m, d) { let nm=m+d, ny=y; if(nm>12){nm=1;ny++}else if(nm<1){nm=12;ny--} return {year:ny, month:nm}; }
+        
+        function getTasksForDate(year, month, day, dateStr) {
+            let dayTasks = [];
+            tasks.forEach(t => { if (t.history && Array.isArray(t.history) && t.history.includes(dateStr)) { dayTasks.push({ type: 'green', task: t, isCompleted: true }); } });
+            const exactTasks = tasks.filter(t => t.date === dateStr);
+            exactTasks.forEach(t => { if (dateStr < SIMULATED_TODAY) dayTasks.push({ type: 'red', task: t, isPredicted: false }); else dayTasks.push({ type: 'yellow', task: t, isPredicted: false }); });
+            const checkDate = new Date(year, month - 1, day); const todayDate = new Date(SIMULATED_TODAY);
+            if (checkDate > todayDate) {
+                tasks.forEach(t => {
+                    const baseDate = new Date(t.date);
+                    if (baseDate < checkDate) {
+                        let nextRun = new Date(baseDate);
+                        for(let i=0; i<1000; i++) {
+                            if (t.unit === '月') nextRun.setMonth(nextRun.getMonth() + parseInt(t.freq));
+                            else if (t.unit === '周') nextRun.setDate(nextRun.getDate() + (7 * parseInt(t.freq)));
+                            else if (t.unit === '年') nextRun.setFullYear(nextRun.getFullYear() + parseInt(t.freq));
+                            else if (t.unit === '天') nextRun.setDate(nextRun.getDate() + parseInt(t.freq));
+                            const projectedStr = `${nextRun.getFullYear()}-${String(nextRun.getMonth()+1).padStart(2,'0')}-${String(nextRun.getDate()).padStart(2,'0')}`;
+                            if (projectedStr === dateStr) { dayTasks.push({ type: 'predicted', task: t, isPredicted: true }); break; }
+                            if (nextRun > checkDate) break;
+                        }
+                    }
+                });
+            }
+            return dayTasks;
+        }
+
+        function renderHomeCalendar() {
+            const mName = translations[currentLang].months[homeMonth - 1];
+            document.getElementById('home-month-display').innerText = currentLang === 'zh' ? `${homeYear}年 ${mName}` : `${mName} ${homeYear}`;
+            const wd = document.getElementById('calendar-weekdays'); 
+            if(wd) { 
+                let html = ''; translations[currentLang].weekdays.forEach(w => html += `<div class="weekday">${w}</div>`); 
+                wd.innerHTML = html;
+            }
+            const cont = document.getElementById('home-calendar-days'); cont.innerHTML = '';
+            const days = getDaysInMonth(homeYear, homeMonth); const fDay = getFirstDayOfMonth(homeYear, homeMonth);
+            for(let i=0;i<fDay;i++) cont.innerHTML+=`<div class="day"></div>`;
+            for(let d=1;d<=days;d++) { 
+                const s=`${homeYear}-${String(homeMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`; 
+                const items=getTasksForDate(homeYear,homeMonth,d,s); 
+                let dot=''; 
+                if(items.some(i=>i.type==='red')) dot=`<div class="dot red"></div>`; 
+                else if(items.some(i=>i.type==='yellow')) dot=`<div class="dot yellow"></div>`; 
+                else if(items.some(i=>i.type==='predicted')) dot=`<div class="dot predicted"></div>`; 
+                else if(items.some(i=>i.type==='green')) dot=`<div class="dot green"></div>`; 
+                const isTodayClass = (s === SIMULATED_TODAY) ? ' today' : '';
+                cont.innerHTML+=`<div class="day${isTodayClass}" onclick="selectHomeDay('${s}')">${d}${dot}</div>`; 
+            }
+            renderHomeListView();
+        }
+
+        function renderHomeListView() {
+            const cont = document.getElementById('home-list-view'); cont.innerHTML = '';
+            const overdue = tasks.filter(t => t.date < SIMULATED_TODAY).sort((a,b)=>a.date.localeCompare(b.date));
+            if(overdue.length) { cont.innerHTML += `<div class="section-header"><span class="dot red" style="display:inline-block;margin-right:5px"></span>${getText('header_overdue')}</div>`; overdue.forEach(t => cont.innerHTML += createCardHtml(t, true, false, false)); }
+            const days = getDaysInMonth(homeYear, homeMonth); let todo=[], done=[];
+            for(let d=1; d<=days; d++){
+                const dateStr = `${homeYear}-${String(homeMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                const items = getTasksForDate(homeYear, homeMonth, d, dateStr);
+                items.forEach(item => { if(item.isCompleted) { if(!done.some(x=>x.id===item.task.id&&x.displayDate===dateStr)) done.push({...item.task, displayDate:dateStr, isCompleted:true}); } else if(dateStr>=SIMULATED_TODAY) { todo.push({...item.task, displayDate:dateStr, isPredicted:item.isPredicted}); } });
+            }
+            if(todo.length) { cont.innerHTML += `<div class="section-header"><span class="dot yellow" style="display:inline-block;margin-right:5px"></span>${getText('header_todo')}</div>`; todo.forEach(t => cont.innerHTML += createCardHtml(t, false, t.isPredicted, false)); }
+            else if(overdue.length === 0) { cont.innerHTML += `<div style="text-align:center; padding:15px; color:var(--tg-hint); font-size:13px;">${getText('empty_todo')}</div>`; }
+            if(done.length) { cont.innerHTML += `<div class="section-header"><span class="dot green" style="display:inline-block;margin-right:5px"></span>${getText('header_completed')}</div>`; done.forEach(t => cont.innerHTML += createCardHtml(t, false, false, true)); }
+        }
+
+        function createCardHtml(task, red, auto, done) {
+            const date = task.displayDate || task.date;
+            const style = done ? 'color:var(--tg-green)' : (red ? 'color:var(--tg-red);font-weight:bold' : 'color:var(--tg-hint)');
+            const icon = done ? '🟢' : (auto ? '🔮' : '⭕');
+            const action = done ? `alert('${task.name}')` : `openActionSheet('${task.id}', '${task.name}', '${date}', ${auto})`;
+            return `<div class="card" onclick="${action}"><div class="card-left"><div class="card-title">${task.name}</div><div class="card-date" style="${style}">📅 ${date}</div></div><div style="font-size:18px;">${icon}</div></div>`;
+        }
+        
+        function selectHomeDay(d) {
+             document.getElementById('daily-date-title').innerText = d; 
+             document.getElementById('home-list-view').classList.add('hidden');
+             document.getElementById('home-daily-view').classList.remove('hidden');
+             const cont = document.getElementById('daily-task-container'); cont.innerHTML='';
+             const parts = d.split('-'); const items = getTasksForDate(parseInt(parts[0]), parseInt(parts[1]), parseInt(parts[2]), d);
+             let pending=[], completed=[];
+             items.forEach(i => { if(i.isCompleted) completed.push({...i.task, displayDate:d}); else pending.push({...i.task, displayDate:d, isPredicted:i.isPredicted}); });
+             if(pending.length) { cont.innerHTML+=`<div class="section-header"><span class="dot yellow" style="display:inline-block;margin-right:5px"></span>${getText('header_todo')}</div>`; pending.forEach(t=>cont.innerHTML+=createCardHtml(t, t.date<SIMULATED_TODAY, t.isPredicted, false)); }
+             else cont.innerHTML+=`<div style="text-align:center; padding:15px; color:var(--tg-hint)">${getText('empty_day_todo')}</div>`;
+             if(completed.length) { cont.innerHTML+=`<div class="section-header"><span class="dot green" style="display:inline-block;margin-right:5px"></span>${getText('header_completed')}</div>`; completed.forEach(t=>cont.innerHTML+=createCardHtml(t, false, false, true)); }
+        }
+
+        function renderSettings() {
+            const houseNameEl = document.getElementById('house-name');
+            const owner = familyMembers.find(m => m.role === 'owner');
+            const ownerName = owner ? (owner.first_name || owner.username || 'User') : 'Мой';
+            if (houseNameEl) {
+                houseNameEl.innerText = `${ownerName}${translations[currentLang].house_suffix}`;
+            }
+
+            document.getElementById('member-count').innerText = familyMembers.length;
+            const list = document.getElementById('member-list'); list.innerHTML = '';
+            familyMembers.forEach(m => {
+                const roleKey = m.role === 'owner' ? 'role_owner' : 'role_member';
+                const displayName = m.first_name || m.username || 'User ' + m.id;
+                const initial = displayName.charAt(0).toUpperCase();
+                list.innerHTML += `<div class="member-card"><div class="avatar">${initial}</div><div class="member-info"><div class="member-name">${displayName}</div><div class="member-role"><span class="role-badge">${getText(roleKey)}</span></div></div></div>`;
+            });
+
+            const displayEl = document.getElementById('current-lang-display');
+            if(displayEl && langMap[currentLang]) displayEl.innerText = langMap[currentLang];
+            ['ru','en','zh'].forEach(k => {
+                const checkEl = document.getElementById('opt-check-'+k);
+                if (checkEl) {
+                    checkEl.innerText = (k === currentLang) ? '✅' : '';
+                    checkEl.parentElement.classList.toggle('selected', k === currentLang);
+                }
+            });
+        }
+
+        function getText(key) { return translations[currentLang][key] || key; }
+        function toggleLanguageMenu() { document.getElementById('language-options').classList.toggle('open'); }
+
+        async function selectLanguage(lang) {
+            currentLang = lang; localStorage.setItem('checkdom_lang', lang); document.getElementById('language-options').classList.remove('open');
+            updateLanguageUI(); renderHomeCalendar(); renderTaskList(); renderYearMonthOptions(); renderSettings(); 
+            if (currentUser && currentUser.id) {
+                const myTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                await supabaseClient.from('profiles').update({ language: lang, timezone: myTimeZone }).eq('id', currentUser.id);
+            }
+        }
+
+        function closeLanguageMenuOutside(e) { if (!e.target.closest('.custom-select-container')) document.getElementById('language-options').classList.remove('open'); }
+
+        function updateLanguageUI() {
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if(translations[currentLang][key]) el.innerHTML = translations[currentLang][key];
+            });
+            document.getElementById('input-name').placeholder = getText('placeholder_task_name');
+            const u = document.getElementById('input-unit');
+            u.options[0].text = getText('unit_month'); u.options[1].text = getText('unit_week'); u.options[2].text = getText('unit_year'); u.options[3].text = getText('unit_day');
+            
+            const n = document.getElementById('input-notify-days');
+            if(n) {
+                n.options[0].text = getText('notify_0'); n.options[1].text = getText('notify_1'); n.options[2].text = getText('notify_2'); n.options[3].text = getText('notify_3'); n.options[4].text = getText('notify_5'); n.options[5].text = getText('notify_7');
+            }
+
+            renderSettings();
+        }
+
+        function switchTab(id, el) { document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); document.getElementById('page-'+id).classList.add('active'); document.querySelectorAll('.tab-item').forEach(t=>t.classList.remove('active')); el.classList.add('active'); }
+        function changeHomeMonth(d) { const r=calculateNewMonth(homeYear,homeMonth,d); homeYear=r.year; homeMonth=r.month; renderHomeCalendar(); }
+        function resetHomeCalendar() { document.getElementById('home-list-view').classList.remove('hidden'); document.getElementById('home-daily-view').classList.add('hidden'); }
+        
+        function startCreateNew() { 
+            currentEditingId=null; document.getElementById('form-title').innerText=getText('title_new_task'); document.getElementById('input-name').value=''; document.getElementById('input-date-value').value=''; document.getElementById('input-date-display').innerText=getText('placeholder_select_date'); document.getElementById('btn-delete-task').style.display='none'; 
+            document.getElementById('input-notify-enable').checked = true;
+            document.getElementById('input-notify-days').value = "0";
+            document.getElementById('input-notify-time').value = "09:00";
+            toggleEditView(true); 
+        }
+
+        function startEdit(id) { 
+            currentEditingId=id; const t=tasks.find(x=>x.id===id); if(!t) return;
+            document.getElementById('form-title').innerText=getText('title_edit_task'); document.getElementById('input-name').value=t.name; document.getElementById('input-freq').value=t.freq; document.getElementById('input-unit').value=t.unit; document.getElementById('input-date-value').value=t.date; document.getElementById('input-date-display').innerText=t.date; document.getElementById('btn-delete-task').style.display='block';
+            document.getElementById('input-notify-enable').checked = (t.notifications_enabled !== false);
+            document.getElementById('input-notify-days').value = t.notify_days_before || 0;
+            document.getElementById('input-notify-time').value = t.notify_time || '09:00';
+            toggleEditView(true); 
+        }
+
+        function toggleEditView(show) { document.getElementById('task-list-mode').classList.toggle('hidden', show); document.getElementById('task-edit-mode').classList.toggle('hidden', !show); }
+        function askDeleteTask() { document.getElementById('delete-confirm-modal').classList.add('show'); }
+        function closeDeleteModal() { document.getElementById('delete-confirm-modal').classList.remove('show'); }
+        function cancelEdit() { toggleEditView(false); }
+        function openActionSheet(id, n, d, auto) { if(auto){alert("Auto task");return;} currentActionTaskId=id; document.getElementById('action-title').innerText=n; document.getElementById('action-date').innerText=d; document.getElementById('action-complete-date-value').value=SIMULATED_TODAY; document.getElementById('action-complete-date-display').innerText=SIMULATED_TODAY; document.getElementById('action-sheet-overlay').classList.add('show'); document.getElementById('action-sheet').classList.add('show'); const task = tasks.find(t=>t.id===id); if(task) document.getElementById('action-next-rule').innerText = getText('msg_next_rule');}
+        function closeActionSheet() { document.getElementById('action-sheet-overlay').classList.remove('show'); document.getElementById('action-sheet').classList.remove('show'); }
+        
+        function openDatePicker(t) { datePickerTarget=t; renderPickerDays(); document.getElementById('date-picker-modal').classList.add('show'); }
+        function closeDatePickerDirect() { document.getElementById('date-picker-modal').classList.remove('show'); }
+        function closeDatePicker(e) { if(e.target.id==='date-picker-modal') closeDatePickerDirect(); }
+        
+        function renderPickerDays() { 
+            const mName = translations[currentLang].months[pickerMonth - 1]; document.getElementById('picker-title').innerText = currentLang === 'zh' ? `${pickerYear}年 ${mName}` : `${mName} ${pickerYear}`;
+            const wd = document.getElementById('calendar-weekdays'); 
+            const cont = document.getElementById('picker-days'); cont.innerHTML=''; 
+            const days=getDaysInMonth(pickerYear,pickerMonth), fDay=getFirstDayOfMonth(pickerYear,pickerMonth);
+            for(let i=0;i<fDay;i++) cont.innerHTML+=`<div class="day"></div>`;
+            for(let d=1;d<=days;d++) { 
+                const s=`${pickerYear}-${String(pickerMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`; 
+                const isTodayClass = (s === SIMULATED_TODAY) ? ' today' : '';
+                cont.innerHTML+=`<div class="day${isTodayClass}" onclick="selectDateFromPicker('${s}')">${d}</div>`; 
+            }
+        }
+
+        function selectDateFromPicker(s) { if(datePickerTarget==='edit') { document.getElementById('input-date-value').value=s; document.getElementById('input-date-display').innerText=s; } else { document.getElementById('action-complete-date-value').value=s; document.getElementById('action-complete-date-display').innerText=s; } closeDatePickerDirect(); }
+        function changePickerMonth(d) { const r=calculateNewMonth(pickerYear,pickerMonth,d); pickerYear=r.year; pickerMonth=r.month; renderPickerDays(); }
+        function openYearMonthPicker(target) { ymPickerTarget = target || 'home'; document.getElementById('ym-picker-modal').classList.add('show'); }
+        function closeYMPicker(e) { if(e.target.id==='ym-picker-modal') document.getElementById('ym-picker-modal').classList.remove('show'); }
+        function confirmYMPicker() { 
+            const y = parseInt(document.getElementById('ym-year-select').value); const m = parseInt(document.getElementById('ym-month-select').value);
+            if (ymPickerTarget === 'home') { homeYear = y; homeMonth = m; renderHomeCalendar(); resetHomeCalendar(); } else { pickerYear = y; pickerMonth = m; renderPickerDays(); }
+            document.getElementById('ym-picker-modal').classList.remove('show'); 
+        }
+
+        function renderTaskList() {
+            const cont = document.getElementById('task-list-container'); cont.innerHTML = '';
+            if(tasks.length===0) { cont.innerHTML=`<div style="text-align:center;padding:40px;color:var(--tg-hint)">${getText('task_list_hint')}</div>`; return; }
+            tasks.sort((a,b)=>a.date.localeCompare(b.date)).forEach(t => {
+                cont.innerHTML += `<div class="card" onclick="startEdit('${t.id}')"><div class="card-left"><div class="card-date" style="color:var(--tg-blue)">${t.date}</div><div class="card-title">${t.name}</div></div><div style="color:var(--tg-hint)">></div></div>`;
+            });
+        }
+        
+        function renderYearMonthOptions() {
+            const ySel=document.getElementById('ym-year-select'); const mSel=document.getElementById('ym-month-select');
+            const selY = ySel.value || homeYear; const selM = mSel.value || homeMonth;
+            ySel.innerHTML = ''; mSel.innerHTML = '';
+            for(let y=homeYear-5; y<=homeYear+5; y++) { let opt=document.createElement('option'); opt.value=y; opt.innerText=y; if(parseInt(y)===parseInt(selY)) opt.selected=true; ySel.appendChild(opt); }
+            const monthNames = translations[currentLang].months;
+            for(let m=1; m<=12; m++) { let opt=document.createElement('option'); opt.value=m; opt.innerText= monthNames[m-1]; if(parseInt(m)===parseInt(selM)) opt.selected=true; mSel.appendChild(opt); }
+        }
+
+        init();
+    </script>
+</body>
+</html>
