@@ -1,106 +1,106 @@
-# CycleDo - 产品需求文档
+# CycleDo - Product Requirements Document
 
-## 一句话介绍
-智能循环任务管理器 — 基于实际完成日期自动推算下次周期，再也不怕忘事。
+## One-liner
+Smart recurring task manager — track life's maintenance cycles with completion-based scheduling.
 
-## 解决什么问题
-生活中有很多循环任务不是按固定日历来的：
-- 净水器滤芯每月换一次，但你晚了5天才换 — 下次应该从你**实际换的那天**开始算，而不是原来的日期
-- 现有日历App（Google Calendar、iOS 提醒事项、滴答清单）的重复任务都是按**原始日期**重置，不是按**实际完成日期**推算
-- 很多人忘了维护任务，直到东西坏了才想起来
+## Problem
+Life is full of recurring tasks that don't follow a fixed calendar:
+- You're supposed to change the water filter every month, but you did it 5 days late — the next one should be a month from *when you actually did it*, not from the original date.
+- Existing calendar apps (Google Calendar, iOS Reminders, TickTick) support recurring tasks, but they reset based on the *original schedule*, not the *actual completion date*.
+- People forget maintenance tasks until something breaks.
 
-## 解决方案
-CycleDo 管理"基于完成日期"的循环任务。点完成后，下次到期日自动按实际完成日推算。
+## Solution
+CycleDo manages "completion-based" recurring tasks. When you mark a task as done, the next due date is automatically calculated from the date you completed it.
 
-## 目标用户
-- 房主（净水滤芯、空调清洗、除虫）
-- 宠物主人（驱虫、疫苗、洗澡）
-- 车主（换机油、轮胎、年检）
-- 健康管理（洗牙、体检、配眼镜）
-- 所有有循环维护需求的人
+## Target Users
+- Homeowners (water filters, HVAC, pest control)
+- Pet owners (deworming, vaccines, grooming)
+- Car owners (oil change, tire rotation, inspection)
+- Health-conscious people (dental cleaning, eye exam, physical)
+- Anyone with recurring life maintenance tasks
 
-## 核心功能（MVP v1.0）
+## Core Features (MVP v1.0)
 
-### 1. 任务管理
-- 创建循环任务：名称、周期（如每2个月）、分类
-- 任务列表按"距到期天数"排序
-- 颜色标记紧急程度：绿色(>7天) → 黄色(3-7天) → 红色(已过期)
+### 1. Task Management
+- Create a recurring task: name, cycle (e.g., every 2 months), category
+- Task list sorted by "days until due"
+- Color-coded urgency: green (>7 days) → yellow (3-7 days) → red (overdue)
 
-### 2. 智能完成
-- 点"完成" → 记录实际完成日期
-- 自动推算下次到期日 = 完成日 + 周期间隔
-- 保留完成历史记录
+### 2. Smart Completion
+- Tap "Done" → record actual completion date
+- Automatically calculate next due date = completion date + cycle interval
+- Keep completion history
 
-### 3. 推送通知
-- 到期前X天提醒（用户可配置）
-- 自定义提醒时间（如每天9:00）
-- 过期任务每天提醒直到完成
+### 3. Push Notifications
+- Remind X days before due date (user configurable)
+- Configurable notification time (e.g., 9:00 AM)
+- Overdue reminders daily until completed
 
-### 4. 分类和模板
-- 内置模板：
-  - 🏠 家居：净水滤芯、空调清洗、除虫
-  - 🐕 宠物：驱虫、疫苗、洗澡
-  - 🚗 汽车：换机油、换轮胎、年检
-  - 🏥 健康：洗牙、体检、配镜
-- 支持自定义分类
+### 4. Categories & Templates
+- Built-in templates:
+  - 🏠 Home: water filter, AC cleaning, pest control
+  - 🐕 Pets: deworming, vaccines, grooming
+  - 🚗 Car: oil change, tire rotation, inspection
+  - 🏥 Health: dental, eye exam, physical
+- Custom categories supported
 
-### 5. 用户账号
-- 注册/登录（Google、Apple、邮箱）
-- 多设备数据同步
+### 5. User Account
+- Sign up / Sign in (Google, Apple, Email)
+- Data synced across devices
 
-## 暂不做的功能（未来版本）
-- 家庭共享（多成员）
-- 购买链接（如"买这个滤芯" → 京东/亚马逊）
-- 维护费用追踪
-- 照片附件（如拍滤芯型号）
-- 日历视图
-- 桌面小组件（iOS/Android）
-- Apple Watch 支持
+## Features NOT in MVP (Future)
+- Family sharing (multiple members)
+- Shopping links (e.g., "buy this filter" → Amazon/JD)
+- Maintenance cost tracking
+- Photo attachments (e.g., photo of filter model)
+- Calendar view
+- Widgets (iOS/Android home screen)
+- Apple Watch support
 
-## 技术方案
+## Tech Stack
 
-### 当前版本（Telegram Mini App）
-- **前端**：纯HTML/CSS/JS，部署在 Cloudflare Pages (checkdom.pages.dev)
-- **后端**：Supabase（PostgreSQL数据库 + 认证）
-- **通知**：pg_cron 每分钟检查 → 通过 Telegram Bot 推送
-- **Bot**：@CheckDomAppBot
+### Current Version (Telegram Mini App)
+- **Frontend**: Pure HTML/CSS/JS, deployed on Cloudflare Pages (checkdom.pages.dev)
+- **Backend**: Supabase (PostgreSQL + Auth)
+- **Notifications**: pg_cron checks every minute → sends via Telegram Bot API
+- **Bot**: @CheckDomAppBot
 
-### 未来 App 版本
-- **前端**：React Native + Expo（一套代码出 iOS + Android）
-- **后端**：继续用 Supabase
-- **通知**：Expo Push Notifications（原生推送）
+### Future App Version
+- **Frontend**: React Native + Expo (one codebase for iOS + Android)
+- **Backend**: Supabase (continue using existing project)
+- **Notifications**: Expo Push Notifications (native push)
 
-### 数据库结构
+### Database Schema
 
 ```sql
--- 家庭
+-- Households
 CREATE TABLE households (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL DEFAULT '我的别墅',
+  name TEXT NOT NULL DEFAULT 'My Home',
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 用户资料（Telegram ID 作为主键）
+-- User profiles (Telegram ID as primary key)
 CREATE TABLE profiles (
   id BIGINT PRIMARY KEY,               -- Telegram user ID
   first_name TEXT,
   username TEXT,
   household_id UUID REFERENCES households(id),
-  role TEXT DEFAULT 'member',           -- 'owner' 或 'member'
+  role TEXT DEFAULT 'member',           -- 'owner' or 'member'
   language TEXT DEFAULT 'ru',           -- 'zh', 'en', 'ru'
   timezone TEXT DEFAULT 'UTC',
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 循环任务
+-- Recurring tasks
 CREATE TABLE tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   household_id UUID NOT NULL REFERENCES households(id),
   name TEXT NOT NULL,
-  date TEXT NOT NULL,                   -- 下次到期日 (YYYY-MM-DD)
-  freq INTEGER NOT NULL DEFAULT 1,     -- 周期数值
-  unit TEXT NOT NULL,                   -- 周期单位（月、周、年、天）
-  history JSONB DEFAULT '[]'::jsonb,   -- 完成历史记录
+  date TEXT NOT NULL,                   -- next due date (YYYY-MM-DD)
+  freq INTEGER NOT NULL DEFAULT 1,     -- cycle value
+  unit TEXT NOT NULL,                   -- cycle unit (month, week, year, day)
+  history JSONB DEFAULT '[]'::jsonb,   -- completion history
   notify_days_before INTEGER DEFAULT 0,
   notify_time TEXT DEFAULT '09:00',
   notifications_enabled BOOLEAN DEFAULT true,
@@ -108,54 +108,54 @@ CREATE TABLE tasks (
 );
 ```
 
-### 通知流程
-1. Supabase pg_cron 每分钟执行 `check_and_notify_telegram()`
-2. 检查哪些任务 `到期日 - 今天 <= 提前提醒天数`
-3. 匹配当前时间与用户设置的 `notify_time`（按用户时区）
-4. 通过 Telegram Bot API 发送通知
-5. 错误处理：单个用户出错跳过继续，不会影响其他人
+### Notification Flow
+1. Supabase pg_cron runs `check_and_notify_telegram()` every minute
+2. Check tasks where `due_date - today <= notify_days_before`
+3. Match current time with user's `notify_time` (in their timezone)
+4. Send notification via Telegram Bot API
+5. Error handling: skip failed users/tasks, never crash the whole loop
 
-## 盈利模式（App 版本）
-- **免费版**：最多5个任务
-- **付费版（$2.99/月 或 $24.99/年）**：无限任务、自定义分类
-- 通过 App Store / Google Play 内购
+## Monetization (App Version)
+- **Free tier**: up to 5 active tasks
+- **Pro ($2.99/month or $24.99/year)**: unlimited tasks, custom categories
+- Payment via App Store / Google Play in-app purchases
 
-## 关键文件
-- `PRD.md` — 本文档（产品需求）
-- `cycledo-schema.sql` — 完整数据库结构 + 通知函数代码
-- `checkdom-original.html` — 原始前端代码（985行，Telegram Mini App）
+## Key Files
+- `PRD.md` — This document (product requirements)
+- `cycledo-schema.sql` — Complete database schema + notification function
+- `checkdom-original.html` — Original frontend code (985 lines, Telegram Mini App)
 
-## Supabase 项目信息
-- 项目名：checkdom
-- Reference ID：sytlwramamwttvrcxxtt
-- 区域：West EU (Ireland)
-- 数据库定时任务：pg_cron 每分钟执行通知检查
+## Supabase Project Info
+- Project name: checkdom
+- Reference ID: sytlwramamwttvrcxxtt
+- Region: West EU (Ireland)
+- Scheduled jobs: pg_cron runs notification check every minute
 
-## 开发阶段
+## Development Phases
 
-### 第一阶段 — 当前（Telegram Mini App）
-- [x] 基础任务管理（增删改查）
-- [x] 完成后自动推算下次日期
-- [x] Telegram 推送通知
-- [x] 多语言支持（中/英/俄）
-- [x] 家庭成员共享
-- [x] 日历视图
+### Phase 1 — Current (Telegram Mini App)
+- [x] Basic task management (CRUD)
+- [x] Completion-based auto-rescheduling
+- [x] Telegram push notifications
+- [x] Multi-language support (zh/en/ru)
+- [x] Family/household sharing
+- [x] Calendar view
 
-### 第二阶段 — App 版本
-- [ ] React Native + Expo 搭建
-- [ ] Apple/Google 登录
-- [ ] 原生推送通知
-- [ ] 内置分类模板
-- [ ] 上架 App Store + Google Play
+### Phase 2 — App Version
+- [ ] React Native + Expo setup
+- [ ] Apple/Google sign-in
+- [ ] Native push notifications
+- [ ] Built-in category templates
+- [ ] Submit to App Store + Google Play
 
-### 第三阶段 — 增长
-- [ ] 桌面小组件
-- [ ] 费用追踪
-- [ ] 购买链接
-- [ ] 更多语言支持
+### Phase 3 — Growth
+- [ ] Home screen widgets
+- [ ] Cost tracking
+- [ ] Shopping links
+- [ ] More languages
 
-## 设计原则
-1. **极简** — 创建一个任务不超过10秒
-2. **一目了然** — 打开就知道什么快到期了
-3. **可靠** — 通知必须准时，绝不漏发
-4. **克制** — 不堆功能，把一件事做好
+## Design Principles
+1. **Dead simple** — Creating a task should take < 10 seconds
+2. **Glanceable** — Open the app, instantly see what's due
+3. **Trustworthy** — Notifications must be reliable, never miss a reminder
+4. **Minimal** — No feature bloat, do one thing well
